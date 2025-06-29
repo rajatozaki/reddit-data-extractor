@@ -1,28 +1,22 @@
+# app.py - Vercel-ready version
+
 import requests
 import json
 import csv
 import io
 import html
-import os
-import uuid
-from bs4 import BeautifulSoup # <-- ADDED: For parsing HTML
+from bs4 import BeautifulSoup
 
 from flask import Flask, render_template, request, session, Response, flash, redirect, url_for
 from urllib.parse import urlparse, urlunparse
 
 app = Flask(__name__)
-app.secret_key = 'super-secret-key-for-dev'
+# Vercel will need this secret key. For a real app, use an environment variable.
+app.secret_key = 'a-super-secret-key-for-vercel'
 
-TEMP_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp_data')
-if not os.path.exists(TEMP_FOLDER):
-    os.makedirs(TEMP_FOLDER)
-
-# --- Helper Functions ---
-
-# clean_reddit_url and parse_comment functions remain the same...
+# --- Helper Functions (No changes needed here) ---
 
 def clean_reddit_url(url):
-    """Sanitizes the Reddit URL to ensure it points to the .json endpoint."""
     parsed_url = urlparse(url)
     path = parsed_url.path
     if path.endswith('/'):
@@ -33,7 +27,6 @@ def clean_reddit_url(url):
     return clean_url
 
 def parse_comment(comment_data):
-    """Recursively parses a comment and its replies."""
     if comment_data['kind'] != 't1':
         return None
     data = comment_data['data']
@@ -51,99 +44,79 @@ def parse_comment(comment_data):
                 comment['replies'].append(parsed_reply)
     return comment
 
-
-# --- THIS FUNCTION IS UPDATED ---
 def flatten_for_csv(comments, parent_id=None):
-    """
-    Flattens the nested comment structure for CSV export
-    and cleans the HTML from the comment body.
-    """
     flat_list = []
     for comment in comments:
-        # Use BeautifulSoup to parse the HTML body and extract plain text
         soup = BeautifulSoup(comment['body'], 'html.parser')
         plain_text_body = soup.get_text(separator=' ', strip=True)
-
         flat_list.append({
             'id': comment['id'],
             'parent_id': parent_id,
             'author': comment['author'],
             'score': comment['score'],
-            'body': plain_text_body # <-- Use the cleaned text
+            'body': plain_text_body
         })
         if comment['replies']:
             flat_list.extend(flatten_for_csv(comment['replies'], parent_id=comment['id']))
     return flat_list
 
+# --- Flask Routes (Modified to use session) ---
 
-# --- Flask Routes ---
-
-# index and extract routes remain the same...
-@app.route('/', methods=['GET'])
+@app.route('/', methods=['GET', 'POST'])
 def index():
+    if request.method == 'POST':
+        url = request.form.get('url')
+        if not url:
+            flash('Please provide a Reddit URL.', 'error')
+            return redirect(url_for('index'))
+
+        json_url = clean_reddit_url(url)
+        headers = {'User-Agent': 'My Reddit Extractor 1.0'}
+        
+        try:
+            response = requests.get(json_url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        except requests.exceptions.RequestException as e:
+            flash(f"Error fetching data from Reddit: {e}", 'error')
+            return redirect(url_for('index'))
+        except json.JSONDecodeError:
+            flash("Failed to parse JSON. The URL might be incorrect.", 'error')
+            return redirect(url_for('index'))
+
+        post_data = data[0]['data']['children'][0]['data']
+        post = {
+            'title': post_data.get('title'),
+            'author': post_data.get('author'),
+            'selftext': html.unescape(post_data.get('selftext_html', '')),
+            'score': post_data.get('score'),
+            'url': f"https://www.reddit.com{post_data.get('permalink')}"
+        }
+
+        comments_data = data[1]['data']['children']
+        comments = []
+        for comment_data in comments_data:
+            parsed_comment = parse_comment(comment_data)
+            if parsed_comment:
+                comments.append(parsed_comment)
+        
+        # Store data in the session cookie
+        session['extracted_data'] = { 'post': post, 'comments': comments }
+
+        return render_template('results.html', post=post, comments=comments)
+
+    # For a GET request, just render the index page
     return render_template('index.html')
 
-@app.route('/extract', methods=['POST'])
-def extract():
-    url = request.form.get('url')
-    if not url:
-        flash('Please provide a Reddit URL.', 'error')
-        return redirect(url_for('index'))
-    json_url = clean_reddit_url(url)
-    headers = {'User-Agent': 'My Reddit Extractor 1.0'}
-    try:
-        response = requests.get(json_url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-    except requests.exceptions.RequestException as e:
-        flash(f"Error fetching data from Reddit: {e}", 'error')
-        return redirect(url_for('index'))
-    except json.JSONDecodeError:
-        flash("Failed to parse JSON. The URL might be incorrect or the response was not valid JSON.", 'error')
-        return redirect(url_for('index'))
 
-    post_data = data[0]['data']['children'][0]['data']
-    post = {
-        'title': post_data.get('title'),
-        'author': post_data.get('author'),
-        'selftext': html.unescape(post_data.get('selftext_html', '')),
-        'score': post_data.get('score'),
-        'url': f"https://www.reddit.com{post_data.get('permalink')}"
-    }
-    comments_data = data[1]['data']['children']
-    comments = []
-    for comment_data in comments_data:
-        parsed_comment = parse_comment(comment_data)
-        if parsed_comment:
-            comments.append(parsed_comment)
-    
-    extracted_data = {'post': post, 'comments': comments}
-    data_id = str(uuid.uuid4())
-    filepath = os.path.join(TEMP_FOLDER, f"{data_id}.json")
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(extracted_data, f, ensure_ascii=False, indent=2)
-    session['data_id'] = data_id
-
-    return render_template('results.html', post=post, comments=comments)
-
-
-# --- THIS FUNCTION IS UPDATED ---
+# We need to change the route for 'extract' as we combined it into index()
 @app.route('/download/<format>')
 def download(format):
-    """Handles downloading the data as JSON or CSV."""
-    data_id = session.get('data_id')
-    if not data_id:
+    # Get data from the session cookie
+    data = session.get('extracted_data')
+    if not data:
         flash("No data to download. Please extract a thread first.", 'error')
         return redirect(url_for('index'))
-    
-    filepath = os.path.join(TEMP_FOLDER, f"{data_id}.json")
-
-    if not os.path.exists(filepath):
-        flash("Error: Temporary data file not found. Please try extracting again.", 'error')
-        return redirect(url_for('index'))
-
-    with open(filepath, 'r', encoding='utf-8') as f:
-        data = json.load(f)
     
     post_title = data['post']['title'].replace(' ', '_').replace('/', '')[:30]
     filename = f"reddit_{post_title}"
@@ -160,18 +133,12 @@ def download(format):
         if not flat_comments:
             output.write("No comments found.")
         else:
-            # We will now only include the columns you requested, plus id/parent_id
             fieldnames = ['id', 'parent_id', 'author', 'score', 'body']
             writer = csv.DictWriter(output, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(flat_comments)
         
-        # --- KEY CHANGE FOR EXCEL COMPATIBILITY ---
-        # 1. Prepend a BOM (Byte Order Mark) to the CSV data.
-        #    This is a special signal that tells Excel the file is UTF-8.
         csv_data = '\ufeff' + output.getvalue()
-
-        # 2. Encode the string to bytes and specify the charset in the mimetype.
         return Response(
             csv_data.encode('utf-8'),
             mimetype='text/csv; charset=utf-8',
@@ -180,7 +147,3 @@ def download(format):
     else:
         flash("Invalid download format specified.", 'error')
         return redirect(url_for('index'))
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
