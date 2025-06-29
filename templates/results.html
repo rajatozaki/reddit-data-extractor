@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extraction Results for: {{ post.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <a href="{{ url_for('index') }}" class="back-link">← Extract Another Thread</a>
+        
+        <div class="post-container">
+            <h1>{{ post.title }}</h1>
+            <div class="post-meta">
+                <span>by <strong>{{ post.author }}</strong></span>
+                <span>•</span>
+                <span>Score: {{ post.score }}</span>
+                <span>•</span>
+                <a href="{{ post.url }}" target="_blank">Original Post</a>
+            </div>
+            {% if post.selftext %}
+                <div class="post-body">
+                    {{ post.selftext|safe }}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="download-links">
+            <a href="{{ url_for('download', format='json') }}" class="button download-btn">Download as JSON</a>
+            <a href="{{ url_for('download', format='csv') }}" class="button download-btn">Download Comments as CSV</a>
+        </div>
+        
+        <hr>
+
+        <h2>Comments ({{ comments|length }})</h2>
+        <div class="comments-container">
+            {# This is a recursive macro to render comments and their replies #}
+            {% macro render_comment(comment) %}
+                <div class="comment">
+                    <div class="comment-meta">
+                        <strong>{{ comment.author }}</strong> (Score: {{ comment.score }})
+                    </div>
+                    <div class="comment-body">
+                        {{ comment.body|safe }}
+                    </div>
+                    
+                    {% if comment.replies %}
+                        <div class="replies">
+                            {% for reply in comment.replies %}
+                                {{ render_comment(reply) }} {# Recursive call #}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endmacro %}
+            
+            {# Start the loop for top-level comments #}
+            {% for comment in comments %}
+                {{ render_comment(comment) }}
+            {% else %}
+                <p>No comments found.</p>
+            {% endfor %}
+        </div>
+
+    </div>
+</body>
+</html>

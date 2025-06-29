@@ -1,0 +1,17 @@
+# Python cache files
+__pycache__/
+*.pyc
+
+# Virtual environment folder (if you use one, e.g., venv, .venv)
+venv/
+.venv/
+
+# Temporary data files from our app
+temp_data/
+
+# IDE-specific folders
+.idea/
+.vscode/
+
+# OS-specific files
+.DS_Store

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit Thread Extractor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Reddit Thread Extractor</h1>
+        <p>Paste the URL of a Reddit thread to extract the post and all comments in a structured format.</p>
+        
+        <!-- Flash messages for errors -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('extract') }}" method="post">
+            <input type="url" name="url" placeholder="https://www.reddit.com/r/..." required>
+            <button type="submit">Extract Comments</button>
+        </form>
+    </div>
+</body>
+</html>
