@@ -2,8 +2,6 @@
 
 A simple and powerful web application built with Python and Flask that extracts Reddit thread content, including nested comments and replies, and cleans it for research and analysis. The app transforms raw, messy JSON from Reddit's API into clean, user-friendly formats like structured JSON and CSV.
 
-**Live Demo:** [Link to Live Demo]  
-*(Note: Add a link here if you deploy the app on a service like Heroku, PythonAnywhere, or Vercel.)*
 
 
 
